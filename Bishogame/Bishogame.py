@@ -1,270 +1,406 @@
-import pygame,sys
+import pygame, sys
 from pygame.locals import *
 from random import randint
+import os # Para verificar si el archivo de puntuaciones existe
 
+# --- Constantes del Juego ---
+ANCHO = 850
+ALTO = 480
 
-ancho = 850
-alto =480
-lista_enemy = []
+# Colores
+BLANCO = (255, 255, 255)
+NEGRO = (0, 0, 0)
+GRIS_OSCURO = (120, 100, 40)
+VERDE_PUNTOS = (0, 200, 0)
+AZUL_CLARO = (173, 216, 230) # Para los botones
+GRIS_CLARO = (200, 200, 200) # Para los botones al pasar el ratón
 
-class bishoSiu(pygame.sprite.Sprite):
+# Velocidades
+VELOCIDAD_JUGADOR = 15
+VELOCIDAD_BALON_JUGADOR = 10
+VELOCIDAD_BALON_ENEMIGO = 5
+VELOCIDAD_ENEMIGO_MOV = 2
+DESPLAZAMIENTO_VERTICAL_ENEMIGO = 40
 
-    def __init__ (self):
-        pygame.sprite.Sprite.__init__(self)
-        self.ImagenBisho = pygame.image.load('imgsonly/bisho.png')
+# Rutas de Imágenes
+IMAGEN_BISHO = 'imgsonly/bisho.png'
+IMAGEN_BALON_JUGADOR = 'imgsonly/ball.png'
+IMAGEN_DISPARO_ENEMIGO = 'imgsonly/nouu.png'
+IMAGEN_FONDO = 'imgsonly/estadio.jpg'
 
-        self.rect = self.ImagenBisho.get_rect()
-        self.rect.centerx = ancho/2
-        self.rect.centery = alto-30
+# Imágenes de Enemigos
+ENEMIGO_TIPOS = [
+    {'img1': 'imgsonly/ballgold.png', 'img2': 'imgsonly/nocr01.png', 'y_offset': 100, 'puntos': 10},
+    {'img1': 'imgsonly/agua.png', 'img2': 'imgsonly/coca.png', 'y_offset': 0, 'puntos': 20},
+    {'img1': 'imgsonly/canchis.png', 'img2': 'imgsonly/canchis2.png', 'y_offset': -100, 'puntos': 30},
+]
 
-        self.listaDisparo = []
-        self.Vida = True
+# Archivo de Puntuaciones
+ARCHIVO_PUNTUACIONES = 'puntuaciones.txt'
+MAX_PUNTUACIONES = 5 # Cuántas puntuaciones máximas guardar
 
-        self.velocidad = 20
-    def movDer (self):
-        self.rect.right += self.velocidad
-        self.__movimiento()
-        
-    def movIzq (self):
-        self.rect.left -= self.velocidad
-        self.__movimiento()
+# --- Clases del Juego (sin cambios en su lógica interna) ---
 
+class BishoSiu(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.image.load(IMAGEN_BISHO).convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.centerx = ANCHO // 2
+        self.rect.centery = ALTO - 30
+        self.velocidad = VELOCIDAD_JUGADOR
+        self.vida = True
 
-    def __movimiento(self):
-        if self.Vida == True:
-            if self.rect.left <= -40:
-                self.rect.left = -40
-            elif self.rect.right >= 920:
-                self.rect.right = 920
+    def update(self):
+        if self.vida:
+            if self.rect.left < 0:
+                self.rect.left = 0
+            elif self.rect.right > ANCHO:
+                self.rect.right = ANCHO
 
-    def cabecear(self,x,y):
-        mibalon = Balon(x,y,'imgsonly/ball.png',True)
-        self.listaDisparo.append(mibalon)
-        print('¡El Bisho cabecea Dios mío!')
-    
-    def destruccion(self):
-        self.Vida = False
+    def movDer(self):
+        if self.vida:
+            self.rect.x += self.velocidad
+
+    def movIzq(self):
+        if self.vida:
+            self.rect.x -= self.velocidad
+
+    def cabecear(self):
+        if self.vida:
+            return Balon(self.rect.centerx, self.rect.top, IMAGEN_BALON_JUGADOR, True)
+        return None
+
+    def destruir(self):
+        self.vida = False
         self.velocidad = 0
 
-    def dibujar (self, superficie):
-        superficie.blit (self.ImagenBisho, self.rect)
-
 class noCreyente(pygame.sprite.Sprite):
-    def __init__(self, posx, posy, distancia, imguno, imgdos):
-        pygame.sprite.Sprite.__init__(self)
-
-        self.imgBalOr = pygame.image.load(imguno)
-        self.imgBal2 = pygame.image.load(imgdos)
-
-        
-        self.listaimgs = [self.imgBalOr, self.imgBal2]
+    def __init__(self, posx, posy, distancia, imguno, imgdos, puntos):
+        super().__init__()
+        self.images = [pygame.image.load(imguno).convert_alpha(), pygame.image.load(imgdos).convert_alpha()]
         self.posImg = 0
-        
-        self.imgnocreyente = self.listaimgs[self.posImg]
-        self.rect = self.imgnocreyente.get_rect()  
-
-        self.listaDisparo = []
-        self.velocidad = 2
+        self.image = self.images[self.posImg]
+        self.rect = self.image.get_rect()
         self.rect.top = posy
         self.rect.left = posx
 
-        self.rangodisparo = 1
-        self.tiempocambio = 1
-
-        self.conquista = False
+        self.velocidad = VELOCIDAD_ENEMIGO_MOV
+        self.rango_disparo = 1
+        self.ultimo_cambio_img = 0
+        self.tiempo_cambio_img = 200
 
         self.derecha = True
-        self.contador = 0
-        self.Maxdes = self.rect.top + 40
+        self.contador_mov_lateral = 0
+        self.max_descenso_actual = self.rect.top + DESPLAZAMIENTO_VERTICAL_ENEMIGO
 
         self.limiteder = posx + distancia
         self.limiteizq = posx - distancia
-    
-    def dibujar(self, superficie):
-        self.imgnocreyente = self.listaimgs[self.posImg]
-        superficie.blit(self.imgnocreyente, self.rect)
+        self.puntos = puntos
 
-    def comport (self, tiempo):
-        if self.conquista == False:
-            self.__movimientos()
-
-            self.__ataque()
-            if self.tiempocambio == tiempo:
-                self.posImg +=0.5
-                self.tiempocambio +=0.5
-
-                if self.posImg > len(self.listaimgs)-1:
-                    self.posImg =0
-
-    def __movimientos(self):        
-        if self.contador < 3:
-            self.__movimientolateral()
+    def update(self, current_time):
+        if self.contador_mov_lateral < 3:
+            self.__movimiento_lateral()
         else:
             self.__descenso()
 
-    def __descenso(self):
-        if self.Maxdes == self.rect.top:
-            self.contador = 0
-            self.Maxdes = self.rect.top +40
-        else:
-            self.rect.top += 1
+        if current_time - self.ultimo_cambio_img > self.tiempo_cambio_img:
+            self.posImg = (self.posImg + 1) % len(self.images)
+            self.image = self.images[int(self.posImg)]
+            self.ultimo_cambio_img = current_time
 
-    def __movimientolateral(self):
-        if self.derecha == True:
-            self.rect.left = self.rect.left + self.velocidad
-            if self.rect.left > self.limiteder:
+    def __movimiento_lateral(self):
+        if self.derecha:
+            self.rect.x += self.velocidad
+            if self.rect.right > self.limiteder:
                 self.derecha = False
-                self.contador += 1
+                self.contador_mov_lateral += 1
         else:
-            self.rect.left = self.rect.left - self.velocidad
+            self.rect.x -= self.velocidad
             if self.rect.left < self.limiteizq:
                 self.derecha = True
+                self.contador_mov_lateral += 1
 
+    def __descenso(self):
+        if self.rect.y < self.max_descenso_actual:
+            self.rect.y += 1
+        else:
+            self.contador_mov_lateral = 0
+            self.max_descenso_actual = self.rect.y + DESPLAZAMIENTO_VERTICAL_ENEMIGO
 
-    def __ataque(self):
-        if (randint(0,100)<self.rangodisparo):
-            self.__disparo()
-
-    def __disparo(self):
-        x,y = self.rect.center
-        miproyectil = Balon(x,y, 'imgsonly/nouu.png', False)
-        self.listaDisparo.append(miproyectil)
+    def atacar(self):
+        if randint(0, 100) < self.rango_disparo:
+            return Balon(self.rect.centerx, self.rect.bottom, IMAGEN_DISPARO_ENEMIGO, False)
+        return None
 
 class Balon(pygame.sprite.Sprite):
-    def __init__(self, posx, posy, ruta, personaje):
-        pygame.sprite.Sprite.__init__(self)
+    def __init__(self, posx, posy, ruta_imagen, es_jugador):
+        super().__init__()
+        self.image = pygame.image.load(ruta_imagen).convert_alpha()
+        self.rect = self.image.get_rect()
+        self.rect.centerx = posx
+        self.rect.centery = posy
 
-        self.imgBalon = pygame.image.load(ruta)
+        self.velocidad = VELOCIDAD_BALON_JUGADOR if es_jugador else VELOCIDAD_BALON_ENEMIGO
+        self.es_disparo_jugador = es_jugador
 
+    def update(self):
+        if self.es_disparo_jugador:
+            self.rect.y -= self.velocidad
+        else:
+            self.rect.y += self.velocidad
 
-        self.rect = self.imgBalon.get_rect()
+        if self.rect.bottom < 0 or self.rect.top > ALTO:
+            self.kill()
 
-        self.velocitydisp = 5
+# --- Funciones Auxiliares ---
 
-        self.rect.top = posy
-        self.rect.left = posx
+def cargar_enemigos(enemy_group, all_sprites):
+    # Limpiar grupos antes de cargar nuevos enemigos (útil al reiniciar el juego)
+    enemy_group.empty()
+    all_sprites.empty() # Asegúrate de no eliminar el jugador si ya está ahí
 
-        self.dispPersonaje = personaje
+    pos_y_inicial_fila = 0
+    for tipo_enemigo in ENEMIGO_TIPOS:
+        posx_inicial = 100
+        # Asegúrate de que las filas no se superpongan si 'y_offset' es pequeño
+        # O simplemente usa una base fija para cada fila
+        # Aquí usaremos el 'y_offset' directamente sumándole un valor base si fuera necesario
+        # En tu diseño, 'y_offset' ya incluye esto, por lo que lo usamos directamente.
+        
+        for _ in range(4): # 4 enemigos por fila
+            enemigo = noCreyente(posx_inicial, tipo_enemigo['y_offset'], 40,
+                                 tipo_enemigo['img1'], tipo_enemigo['img2'], tipo_enemigo['puntos'])
+            enemy_group.add(enemigo)
+            all_sprites.add(enemigo)
+            posx_inicial += 200 # Espacio entre enemigos
 
-    
-    def trayectoria(self):
-        if self.dispPersonaje == True:
-            self.rect.top = self.rect.top - self.velocitydisp
-        else:    
-            self.rect.top = self.rect.top + self.velocitydisp
-    
-    def dibujar(self, superficie):
-        superficie.blit(self.imgBalon, self.rect)
+# --- Funciones de Puntuación ---
 
-def detener():
-    for enemigo in lista_enemy:
-        for disparo in enemigo.listaDisparo:
-            enemigo.listaDisparo.remove(disparo)
+def cargar_puntuaciones():
+    puntuaciones = []
+    if os.path.exists(ARCHIVO_PUNTUACIONES):
+        with open(ARCHIVO_PUNTUACIONES, 'r') as f:
+            for line in f:
+                try:
+                    puntuaciones.append(int(line.strip()))
+                except ValueError:
+                    continue # Ignora líneas inválidas
+    puntuaciones.sort(reverse=True) # Ordenar de mayor a menor
+    return puntuaciones[:MAX_PUNTUaciones] # Devolver solo el top X
 
-def cargar_enemigos():
-    posx = 100
-    for x in range (1,5):
-        enemigo = noCreyente (posx,100,40, 'imgsonly/ballgold.png', 'imgsonly/nocr01.png')
-        lista_enemy.append(enemigo)
-        posx = posx + 200
+def guardar_puntuacion(nueva_puntuacion):
+    puntuaciones = cargar_puntuaciones()
+    puntuaciones.append(nueva_puntuacion)
+    puntuaciones.sort(reverse=True)
+    puntuaciones = puntuaciones[:MAX_PUNTUaciones] # Mantener solo el top X
 
-    posx = 100
-    for x in range (1,5):
-        enemigo = noCreyente (posx,0,40, 'imgsonly/agua.png', 'imgsonly/coca.png')
-        lista_enemy.append(enemigo)
-        posx = posx + 200
+    with open(ARCHIVO_PUNTUACIONES, 'w') as f:
+        for score in puntuaciones:
+            f.write(f"{score}\n")
 
-    posx = 100
-    for x in range (1,5):
-        enemigo = noCreyente (posx,-100,40, 'imgsonly/canchis.png', 'imgsonly/canchis2.png')
-        lista_enemy.append(enemigo)
-        posx = posx + 200
+# --- Funciones de Interfaz de Usuario ---
 
-def BishoGame():
-    pygame.init()
-    ventana = pygame.display.set_mode((ancho,alto))
-    pygame.display.set_caption("Bishogame")
+def dibujar_texto(superficie, texto, fuente, color, x, y):
+    texto_superficie = fuente.render(texto, True, color)
+    texto_rect = texto_superficie.get_rect()
+    texto_rect.center = (x, y)
+    superficie.blit(texto_superficie, texto_rect)
 
-    fondoimagen = pygame.image.load('imgsonly/estadio.jpg')
-    mifuentesys = pygame.font.SysFont("Times New Roman", 50)
-    text = mifuentesys.render("Fin del Juego", 0, (120,100,40))
+def dibujar_boton(superficie, rect, texto, fuente, color_normal, color_hover, mouse_pos):
+    color_actual = color_normal
+    if rect.collidepoint(mouse_pos):
+        color_actual = color_hover
+    pygame.draw.rect(superficie, color_actual, rect, border_radius=10) # Borde redondeado
+    dibujar_texto(superficie, texto, fuente, NEGRO, rect.centerx, rect.centery)
+    return rect.collidepoint(mouse_pos) # Retorna si el ratón está sobre el botón
 
-    jugador = bishoSiu()
-    cargar_enemigos()
+# --- Pantallas del Juego ---
 
-    enjuego = True
-    reloj = pygame.time.Clock()
+def mostrar_menu_principal(ventana, reloj):
+    fuente_titulo = pygame.font.SysFont("Times New Roman", 70)
+    fuente_boton = pygame.font.SysFont("Times New Roman", 40)
+
+    # Definir rectángulos para los botones
+    boton_jugar_rect = pygame.Rect(ANCHO // 2 - 100, ALTO // 2 - 50, 200, 70)
+    boton_puntuaciones_rect = pygame.Rect(ANCHO // 2 - 150, ALTO // 2 + 50, 300, 70)
+    boton_salir_rect = pygame.Rect(ANCHO // 2 - 75, ALTO // 2 + 150, 150, 70) # Botón de salir
 
     while True:
-
-        reloj.tick(60)
-        tiempo = pygame.time.get_ticks()/1000
-
-
+        mouse_pos = pygame.mouse.get_pos()
         for event in pygame.event.get():
             if event.type == QUIT:
                 pygame.quit()
                 sys.exit()
+            if event.type == MOUSEBUTTONDOWN:
+                if boton_jugar_rect.collidepoint(mouse_pos):
+                    return "jugar"
+                if boton_puntuaciones_rect.collidepoint(mouse_pos):
+                    return "puntuaciones"
+                if boton_salir_rect.collidepoint(mouse_pos):
+                    pygame.quit()
+                    sys.exit()
+
+        ventana.blit(pygame.image.load(IMAGEN_FONDO).convert(), (0, 0)) # Fondo del menú
+
+        dibujar_texto(ventana, "BishoGame", fuente_titulo, BLANCO, ANCHO // 2, ALTO // 4)
+
+        dibujar_boton(ventana, boton_jugar_rect, "Jugar", fuente_boton, AZUL_CLARO, GRIS_CLARO, mouse_pos)
+        dibujar_boton(ventana, boton_puntuaciones_rect, "Puntuaciones Máximas", fuente_boton, AZUL_CLARO, GRIS_CLARO, mouse_pos)
+        dibujar_boton(ventana, boton_salir_rect, "Salir", fuente_boton, AZUL_CLARO, GRIS_CLARO, mouse_pos)
+
+        pygame.display.flip()
+        reloj.tick(60)
+
+def mostrar_puntuaciones_maximas(ventana, reloj):
+    fuente_titulo = pygame.font.SysFont("Times New Roman", 60)
+    fuente_puntuacion = pygame.font.SysFont("Times New Roman", 35)
+    fuente_volver = pygame.font.SysFont("Times New Roman", 30)
+
+    puntuaciones = cargar_puntuaciones()
+
+    boton_volver_rect = pygame.Rect(ANCHO // 2 - 75, ALTO - 100, 150, 60)
+
+    while True:
+        mouse_pos = pygame.mouse.get_pos()
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == MOUSEBUTTONDOWN:
+                if boton_volver_rect.collidepoint(mouse_pos):
+                    return # Volver al menú principal
+
+        ventana.blit(pygame.image.load(IMAGEN_FONDO).convert(), (0, 0))
+
+        dibujar_texto(ventana, "Puntuaciones Máximas", fuente_titulo, BLANCO, ANCHO // 2, 80)
+
+        y_offset = 180
+        if not puntuaciones:
+            dibujar_texto(ventana, "No hay puntuaciones aún.", fuente_puntuacion, BLANCO, ANCHO // 2, y_offset)
+        else:
+            for i, score in enumerate(puntuaciones):
+                dibujar_texto(ventana, f"{i+1}. {score}", fuente_puntuacion, BLANCO, ANCHO // 2, y_offset + i * 40)
+
+        dibujar_boton(ventana, boton_volver_rect, "Volver", fuente_volver, AZUL_CLARO, GRIS_CLARO, mouse_pos)
+
+        pygame.display.flip()
+        reloj.tick(60)
+
+# --- Bucle Principal del Juego ---
+
+def BishoGame():
+    pygame.init()
+    ventana = pygame.display.set_mode((ANCHO, ALTO))
+    pygame.display.set_caption("Bishogame")
+
+    fondoimagen = pygame.image.load(IMAGEN_FONDO).convert()
+    fuente_fin_juego = pygame.font.SysFont("Times New Roman", 50)
+    fuente_puntuacion = pygame.font.SysFont("Times New Roman", 30)
+
+    text_fin_juego = fuente_fin_juego.render("Fin del Juego", True, GRIS_OSCURO)
+
+    reloj = pygame.time.Clock()
+
+    estado_juego = "menu" # Estado inicial: "menu", "jugar", "puntuaciones"
+
+    while True:
+        if estado_juego == "menu":
+            opcion_menu = mostrar_menu_principal(ventana, reloj)
+            if opcion_menu == "jugar":
+                estado_juego = "jugar"
+            elif opcion_menu == "puntuaciones":
+                estado_juego = "puntuaciones"
+        elif estado_juego == "puntuaciones":
+            mostrar_puntuaciones_maximas(ventana, reloj)
+            estado_juego = "menu" # Volver al menú después de ver puntuaciones
+        elif estado_juego == "jugar":
+            # --- Configuración para un nuevo juego ---
+            all_sprites = pygame.sprite.Group()
+            player_group = pygame.sprite.Group()
+            enemy_group = pygame.sprite.Group()
+            player_bullets = pygame.sprite.Group()
+            enemy_bullets = pygame.sprite.Group()
+
+            jugador = BishoSiu()
+            all_sprites.add(jugador)
+            player_group.add(jugador)
+
+            cargar_enemigos(enemy_group, all_sprites) # Asegura que los enemigos se recarguen
+
+            puntuacion = 0
+            en_juego = True
             
-            if enjuego == True:
-                if event.type == pygame.KEYDOWN:
+            # --- Bucle de juego activo ---
+            while en_juego:
+                current_time = pygame.time.get_ticks()
+                reloj.tick(60)
 
-                    if event.key == K_LEFT:
-                        jugador.movIzq()
+                for event in pygame.event.get():
+                    if event.type == QUIT:
+                        pygame.quit()
+                        sys.exit()
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == K_LEFT:
+                            jugador.movIzq()
+                        elif event.key == K_RIGHT:
+                            jugador.movDer()
+                        elif event.key == K_c:
+                            nuevo_balon = jugador.cabecear()
+                            if nuevo_balon:
+                                all_sprites.add(nuevo_balon)
+                                player_bullets.add(nuevo_balon)
 
-                    elif event.key == K_RIGHT:
-                        jugador.movDer()
+                # --- Actualización y Colisiones ---
+                all_sprites.update(current_time)
 
-                    elif event.key == K_c:
-                        x,y = jugador.rect.center
-                        jugador.cabecear(x,y)
+                for enemigo in enemy_group:
+                    disparo = enemigo.atacar()
+                    if disparo:
+                        all_sprites.add(disparo)
+                        enemy_bullets.add(disparo)
 
-        
-        ventana.blit(fondoimagen, (0,0))
+                hits_player_bullet_enemy = pygame.sprite.groupcollide(enemy_group, player_bullets, True, True)
+                for enemy_hit in hits_player_bullet_enemy:
+                    puntuacion += enemy_hit.puntos
 
-        jugador.dibujar(ventana)
+                hits_enemy_bullet_player = pygame.sprite.spritecollide(jugador, enemy_bullets, True)
+                if hits_enemy_bullet_player:
+                    jugador.destruir()
+                    en_juego = False
 
+                hits_enemy_player = pygame.sprite.spritecollide(jugador, enemy_group, False)
+                if hits_enemy_player and jugador.vida:
+                    jugador.destruir()
+                    en_juego = False
+                
+                # Si todos los enemigos han sido destruidos, el jugador gana (puedes reiniciar nivel o ir al menú)
+                if not enemy_group: # Si el grupo de enemigos está vacío
+                    print("¡Todos los enemigos destruidos! ¡Has ganado!")
+                    en_juego = False # Puedes cambiar esto para avanzar de nivel si lo deseas
 
-        if len(jugador.listaDisparo)>0:
-            for x in jugador.listaDisparo:
-                x.dibujar(ventana)
-                x.trayectoria()
-                if x.rect.top < 10:
-                    jugador.listaDisparo.remove(x)
-                else:
-                    for enemigo in lista_enemy:
-                        if x.rect.colliderect(enemigo.rect):
-                            lista_enemy.remove(enemigo)
-                            jugador.listaDisparo
-        
-        if len(lista_enemy)>0:
-            for enemigo in lista_enemy:
-                enemigo.comport(tiempo)
-                enemigo.dibujar(ventana)
-            if enemigo.rect.colliderect(jugador.rect):
-                jugador.destruccion()
-                jugador.listaDisparo.remove(disparo)
-                enemigo.listaDisparo.remove(x)
+                # --- Dibujado en juego ---
+                ventana.blit(fondoimagen, (0, 0))
+                all_sprites.draw(ventana)
 
-            if len(enemigo.listaDisparo)>0:
-                for x in enemigo.listaDisparo:
-                    x.dibujar(ventana)
-                    x.trayectoria()
-                    if x.rect.colliderect(jugador.rect):
-                        jugador.destruccion()
-                        enjuego = False
-                        detener()
-                    if x.rect.top < 20:
-                        enemigo.listaDisparo.remove(x)
-                    else:
-                        for disparo in jugador.listaDisparo:
-                            pass
+                text_puntuacion = fuente_puntuacion.render(f"Puntos: {puntuacion}", True, VERDE_PUNTOS)
+                ventana.blit(text_puntuacion, (10, 10))
 
+                if not en_juego:
+                    # Guardar puntuación si el juego termina
+                    if jugador.vida: # Si el jugador ganó (destruyó a todos los enemigos)
+                         guardar_puntuacion(puntuacion)
+                         text_fin_juego = fuente_fin_juego.render("¡Victoria!", True, VERDE_PUNTOS) # Mensaje de victoria
+                    else: # Si el jugador perdió
+                         guardar_puntuacion(puntuacion) # Guardar puntuación aunque se pierda
+                         text_fin_juego = fuente_fin_juego.render("Fin del Juego", True, GRIS_OSCURO) # Mensaje de game over
+                    
+                    ventana.blit(text_fin_juego, (ANCHO // 2 - text_fin_juego.get_width() // 2, ALTO // 2 - text_fin_juego.get_height() // 2))
+                    pygame.display.update()
+                    pygame.time.wait(2000) # Esperar 2 segundos antes de volver al menú
+                    estado_juego = "menu" # Volver al menú principal
 
-        if enjuego == False:
-            ventana.blit(text,(300,300))
+                pygame.display.update()
 
-
-        pygame.display.update()
-
-BishoGame()
+if __name__ == '__main__':
+    BishoGame()
